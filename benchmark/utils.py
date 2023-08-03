@@ -8,127 +8,129 @@ except:
 ###### import ######
 
 
+### tricky
+def normalize_disease(name):
+    name = name.lower()
+    if 'lymphoma' in name:
+      return 'lymphoma'
+    name = name.replace(',', '')
+    name = name.replace('(', ' ')
+    name = name.replace(')', ' ')
 
-def plot_hist(prefix_name, prediction, label):
-	import seaborn as sns
-	import matplotlib.pyplot as plt
-	figure_name = prefix_name + "_histogram.png"
-	positive_prediction = [prediction[i] for i in range(len(label)) if label[i]==1]
-	negative_prediction = [prediction[i] for i in range(len(label)) if label[i]==0]
-	sns.distplot(positive_prediction, hist=True,  kde=False, bins=50, color = 'blue', label = 'positive')
-	sns.distplot(negative_prediction, hist=True,  kde=False, bins=50, color = 'red', label = 'negative')
-	plt.legend()
-	plt.savefig(figure_name)
-	return 
+    name = name.replace('cancer', 'neoplasm')
+    name = name.replace('neoplasms', 'neoplasm')
+    name = name.replace('tumors', 'tumor')
 
-def replace_strange_symbol(text):
-	for i in "[]'\n/":
-		text = text.replace(i,'_')
-	return text
+    name = name.replace('infections', 'infection')
+    name = name.replace('diseases', 'disease')
+    name = name.replace('disorders', 'disorder')
+    name = name.replace('syndromes', 'syndrome')
 
-#  xml read blog:  https://blog.csdn.net/yiluochenwu/article/details/23515923 
+    name = ' '.join(name.split())
+    if name.split()[0]=='stage':
+      name = ' '.join(name.split()[2:])
+
+    name_lst = [name]
+    if ' neoplasm' in name:
+      # print(name)
+      name_lst.append(name.replace('neoplasm', 'tumor'))
+      name_split = name.split()
+      idx = name_split.index('neoplasm')
+      name2 = name_split[idx-1] + ' ' + name_split[idx]
+      name_lst.append(name2)
+    if ' tumor' in name:
+      name_lst.append(name.replace('tumor', 'neoplasm'))
+      name_split = name.split()
+      idx = name_split.index('tumor')
+      name2 = name_split[idx-1] + ' ' + name_split[idx]
+      name_lst.append(name2)
+    if 'disease' in name:
+      name_lst.append(name.replace('disease', '').strip())
+    if 'disorder' in name:
+      name_lst.append(name.replace('disorder', '').strip())
+    if '-related' in name:
+      name_lst.append(name.replace('-related', '').strip())
+    if 'syndrome' in name:
+      name_lst.append(name.replace('syndrome', '').strip())
+
+
+    if 'lung' in name and 'carcinoma' in name:
+      name_lst.append('lung carcinoma')
+    elif 'cell' in name and 'carcinoma' in name:
+      name_lst.append('cell carcinoma')
+    elif 'carcinoma' in name:
+      name_lst.append('carcinoma')
+
+
+
+    ## approximation 1	very few
+    organ = ['liver', 'kidney', 'cardio', 'renal', 'hiv']
+    for word in organ:
+      if word in name:
+        name_lst.append(word)
+
+    # approximation 2 most 20%
+    word_lst = sorted([(word, len(word)) for word in name.split()], key = lambda x:x[1], reverse = True)
+    for word, cnt in word_lst:
+      if cnt < 8:
+        break
+      name_lst.append(word)
+
+    return name_lst
+
+
+
+
+
+
+
+
+def get_icd_from_nih(name):
+    prefix = 'https://clinicaltables.nlm.nih.gov/api/icd10cm/v3/search?sf=code,name&terms='
+    name_lst = normalize_disease(name)
+    for name in name_lst:
+        url = prefix + name
+        response = requests.get(url)
+        text = response.text
+        if text == '[0,[],null,[]]':
+          continue
+        text = text[1:-1]
+        idx1 = text.find('[')
+        idx2 = text.find(']')
+        codes = text[idx1+1:idx2].split(',')
+        codes = [i[1:-1] for i in codes]
+        return codes
+    return None
+
 def walkData(root_node, prefix, result_list):
-	temp_list =[prefix + '/' + root_node.tag, root_node.text]
-	result_list.append(temp_list)
-	children_node = root_node.getchildren()
-	if len(children_node) == 0:
-		return
-	for child in children_node:
-		walkData(child, prefix = prefix + '/' + root_node.tag, result_list = result_list)
 
+    temp_list = [prefix + '/' + root_node.tag, root_node.text]
+    result_list.append(temp_list)
 
-def dynamic_programming(s1, s2):
-	arr2d = [[0 for i in s2] for j in s1]
-	if s1[0] == s2[0]:
-		arr2d[0][0] = 1
-	for i in range(1, len(s1)):
-		if s1[i]==s2[0]:
-			arr2d[i][0] = 1
-		else:
-			arr2d[i][0] = arr2d[i-1][0] 
-	for i in range(1,len(s2)):
-		if s2[i]==s1[0]:
-			arr2d[0][i] = 1 
-		else:
-			arr2d[0][i] = arr2d[0][i-1]
-	for i in range(1,len(s1)):
-		for j in range(1,len(s2)):
-			if s1[i] == s2[j]:
-				arr2d[i][j] = arr2d[i-1][j-1] + 1 
-			else:
-				arr2d[i][j] = max(arr2d[i-1][j], arr2d[i][j-1])
-	return arr2d[len(s1)-1][len(s2)-1]
-
-
-def get_path_of_all_xml_file():
-	input_file = "./data/all_xml"
-	with open(input_file, 'r') as fin:
-		lines = fin.readlines()
-	input_file_lst = [i.strip() for i in lines]
-	return input_file_lst 
-
-
-def remove_multiple_space(text):
-	text = ' '.join(text.split())
-	return text 
-
-def nctid_2_xml_file_path(nctid):
-	assert len(nctid)==11
-	prefix = nctid[:7] + "xxxx"
-	datafolder = os.path.join("./ClinicalTrialGov/", prefix, nctid+".xml")
-	return datafolder 
-
-
-def fingerprints_from_mol(mol):
-    fp = AllChem.GetMorganFingerprint(mol, 3, useCounts=True, useFeatures=True)
-    size = 2048
-    nfp = np.zeros((1, size), np.int32)
-    for idx,v in fp.GetNonzeroElements().items():
-        nidx = idx%size
-        nfp[0, nidx] += int(v)
-    return nfp
-
-def smiles2fp(smiles):
-	try:
-		mol = Chem.MolFromSmiles(smile)
-		fp = fingerprints_from_mol(mol)
-		return fp 
-	except:
-		return np.zeros((1, 2048), np.int32)
-
-def smiles_lst2fp(smiles_lst):
-	fp_lst = [smiles2fp(smiles) for smiles in smiles_lst]
-	fp_mat = np.concatenate(fp_lst, 0)
-	fp = np.mean(fp_mat,0)
-	return fp	
+    for child in root_node:
+        walkData(child, prefix=prefix + '/' + root_node.tag, result_list=result_list)
 
 
 
-
-
-if __name__ == "__main__":
-	text = "interpret_result/NCT00329602__completed____1__1.7650960683822632__phase 4__['restless legs syndrome']__['placebo', 'ropinirole'].png"
-	print(replace_strange_symbol(text))
-
-
-
-
-
-
-# if __name__ == "__main__":
-# 	input_file_lst = get_path_of_all_xml_file() 
-# 	print(input_file_lst[:5])
-# '''
-# input_file_lst = [ 
-# 	'ClinicalTrialGov/NCT0000xxxx/NCT00000102.xml', 
-#  	'ClinicalTrialGov/NCT0000xxxx/NCT00000104.xml', 
-#  	'ClinicalTrialGov/NCT0000xxxx/NCT00000105.xml', 
-# 	  ... ]
-# '''
-
-
-
-# if __name__ == "__main__":
-# 	s1 = "328943"
-# 	s2 = "13785"
-# 	assert dynamic_programming(s1, s2)==2 
+def root2outcome(root):
+    result_list = []
+    walkData(root, prefix = '', result_list = result_list)
+    filter_func = lambda x:'p_value' in x[0]
+    outcome_list = list(filter(filter_func, result_list))
+    if len(outcome_list)==0:
+      return None
+    outcome = outcome_list[0][1]
+    if outcome[0]=='<':
+      return 1
+    if outcome[0]=='>':
+      return 0
+    if outcome[0]=='=':
+      outcome = outcome[1:]
+    try:
+      label = float(outcome)
+      if label < 0.05:
+        return 1
+      else:
+        return 0
+    except:
+      return None
